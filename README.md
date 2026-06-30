@@ -1,81 +1,103 @@
-# SpotifyPM
-Spotify Reviews Scraper
+# SpotifyPM — Spotify Reviews Scraper
 
-Pulls Spotify reviews/mentions from three sources and saves them as both
-CSV and JSON, per-platform (raw) and combined (normalized into one schema).
-Source	Approach	API key needed?
-Google Play Store	`google-play-scraper` library	No
-Apple App Store	Direct request to Apple's public customer-reviews RSS/JSON feed (no third-party scraping package)	No
-Reddit	Apify actor `spry_wholemeal/reddit-scraper`, called via `apify-client`	Yes — `APIFY_TOKEN`
-1. **Setup**
+This tool collects Spotify reviews and mentions from three places — the Google Play Store, the Apple App Store, and Reddit — and saves them as both CSV and JSON files. You get the raw data from each source separately, plus one combined file that puts everything into the same format so it's easy to work with.
+
+## What you need before starting
+
+| Source | How it gets the data | Do you need an API key? |
+|---|---|---|
+| Google Play Store | A free library called `google-play-scraper` | No |
+| Apple App Store | A direct request to Apple's own public reviews feed (no extra scraping tool needed) | No |
+| Reddit | A third-party tool called Apify, accessed through `apify-client` | Yes — you'll need an `APIFY_TOKEN` |
+
+## Step 1: Set up the project
+
+Open a terminal and run:
+
 ```bash
 cd spotify-reviews-scraper
-python3 -m venv .venv && source .venv/bin/activate   # optional but recommended
+python3 -m venv .venv && source .venv/bin/activate   # optional, but recommended
 pip install -r requirements.txt
 cp .env.example .env
 ```
-Open `.env` and set your Apify token:
+
+Then open the `.env` file and add your Apify token, like this:
+
 ```
 APIFY_TOKEN=your_apify_token_here
 ```
-> ⚠️ If you've ever pasted an Apify token into a chat, terminal recording,
-> or shared doc, treat it as compromised and rotate it at
-> https://console.apify.com/account/integrations before using it here.
-2.** Run**
+
+> ⚠️ **Important:** If you've ever pasted an Apify token into a chat, a recorded terminal session, or a shared document, consider it compromised. Generate a new one at https://console.apify.com/account/integrations before using it here.
+
+## Step 2: Run the scraper
+
 ```bash
 python main.py
 ```
-This runs all three scrapers across multiple country storefronts (Play Store / App Store) and writes everything to `./output/`:
+
+This collects reviews from all three sources, across several countries' app stores, and saves everything into a folder called `output/`:
+
 ```
 output/
-  play_store_raw.json      play_store_raw.csv      # full raw Play Store fields (multi-country)
-  app_store_raw.json       app_store_raw.csv       # full raw App Store fields (multi-country)
-  reddit_raw.json          reddit_raw.csv          # full raw Reddit fields
-  combined_reviews.json    combined_reviews.csv    # all 3, same columns, not deduped/cleaned
+  play_store_raw.json      play_store_raw.csv      # everything from the Play Store, multiple countries
+  app_store_raw.json       app_store_raw.csv       # everything from the App Store, multiple countries
+  reddit_raw.json          reddit_raw.csv          # everything from Reddit
+  combined_reviews.json    combined_reviews.csv    # all three sources merged into one format (not yet cleaned)
 ```
-Combined schema: `platform, id, author, rating, title, text, date, thumbs_up, app_version, reply_text, url`.
-Ratings are only meaningful for Play Store / App Store (Reddit posts don't have a star rating — `thumbs_up` carries the post/comment score instead).
-Run just one source:
+
+The combined file includes these columns for every entry: `platform, id, author, rating, title, text, date, thumbs_up, app_version, reply_text, url`.
+
+Note: only Play Store and App Store entries have a real star rating. Reddit posts don't have ratings — instead, the `thumbs_up` column shows the post or comment's upvote score.
+
+If you only want one source instead of all three, you can skip the others:
+
 ```bash
 python main.py --skip-apple --skip-reddit   # Play Store only
 ```
-3. **Clean, dedupe, and normalize**
+
+## Step 3: Clean and organize the data
+
 ```bash
 python clean_pipeline.py
 ```
-Reads the `*_raw.json` files in `output/` and writes `output/cleaned_reviews.csv` / `.json` — one
-homogeneous schema across all three sources, with text cleaned, dates parsed to ISO-8601, ratings
-normalized to 1-5 ints, contentless rows dropped, and duplicates removed (exact-match on
-platform+author+text+date, plus Reddit posts deduped by permalink since the same post can surface
-under more than one search query). This is the file to feed into the dashboard.
-Cleaned schema: `record_id, platform, author, rating, title, text, word_count, date, year_month, country, subreddit, app_version, thumbs_up, reply_text, url`.
-Re-run this any time after a fresh scrape — it doesn't touch the network.
 
-4. **Explore the data: dashboard.html**
-Open `dashboard.html` directly in a browser (no server, no build step — it's one self-contained
-file). Load `output/cleaned_reviews.csv` or `.json` via the Load CSV / JSON button, or click
-Load sample data to preview it with synthetic data first.
-Filters available: source platform, country (store geography), app version, subreddit, rating,
-date range, and free-text search across title/author/review text. There's also an Export
-filtered (CSV) button so you can pull out just the slice you're looking at (e.g. all 1-star
-Android reviews from Germany in March) for a slide or report.
-Not included as filters: gender and device. Neither Google Play, Apple's App Store, nor
-Reddit's public data exposes reviewer demographics or device info. Guessing at gender from
-usernames, or device from anything in these feeds, would be fabricating data, not analyzing it —
-so those columns simply don't exist rather than being filled with unreliable guesses.
+This takes the raw files from `output/` and produces one clean, consistent file: `output/cleaned_reviews.csv` and `.json`. During this step it: tidies up the review text, converts all dates into a standard format, makes sure every rating is a whole number from 1 to 5, removes empty/blank entries, and removes duplicates (exact matches by platform, author, text, and date — Reddit posts are also checked separately since the same post can show up under more than one search term).
 
-5. Tuning
-Everything app-specific lives in `config.py`:(currently set for 10 review per source for testig purposes)
-`PLAY_STORE_APP_ID` — defaults to `com.spotify.music`
-`PLAY_STORE_COUNTRIES` / `APP_STORE_COUNTRIES` — lists of storefronts to scrape (default: `us, gb, de, in, br, au`). This is what gives the dashboard's "geography" filter real data — add or remove country codes here. Note `PLAY_STORE_LANG` stays `"en"` across all of them, so non-English-market countries only return their English-language reviews, not the dominant local-language ones.
-`REDDIT_QUERIES` — search terms sent to the Reddit actor (defaults to a few Spotify-related phrases so you catch more than just exact-match "Spotify")
-`REDDIT_COMMENTS_MODE` — `"none"` (fast/cheap, posts only), `"all"` (every post's comments — much slower and uses more Apify usage), or `"high_engagement"` (comments only on popular posts)
-6. Things worth knowing
-Apple App Store cap: Apple's public reviews feed only exposes a limited, recent window of reviews per country (capped at `MAX_PAGES x 50` in `apple_appstore.py`, roughly the same few-hundred-per-country ceiling as before), no matter how high `APP_STORE_HOW_MANY` is set in `config.py`. This isn't a script limitation — it's what Apple's feed itself returns. To get broader historical coverage you'd need Apple's official App Store Connect API (requires being the app's own developer, which doesn't apply to Spotify) or a paid third-party dataset.
-Multi-country scraping takes longer: scraping 6 countries instead of 1 roughly multiplies Play/App Store runtime by 6. Trim `PLAY_STORE_COUNTRIES` / `APP_STORE_COUNTRIES` in `config.py` if you want a faster run.
-Apify cost/runtime: `REDDIT_MAX_POSTS_PER_QUERY` is set very high (effectively "no cap" — the actor just stops once a query runs dry). For a popular topic like "Spotify" this can mean a long run and noticeable Apify usage, especially if you switch `REDDIT_COMMENTS_MODE` to `"all"`. Keep an eye on usage in the Apify console; start with a smaller `REDDIT_MAX_POSTS_PER_QUERY` (e.g. 200) to sanity-check output before doing a full run.
-Google Play volume: Spotify has an enormous number of Play Store reviews per country. `reviews_all()` will make many sequential requests (200 reviews/page) — this can take a while and is the main reason `sleep_milliseconds` is set rather than 0.
-Terms of service: these platforms' reviews/posts are publicly visible, but each has its own ToS around automated access. Use this responsibly (don't hammer their servers, don't republish data in ways that violate Reddit's or Apple's/Google's terms) and add your own rate-limiting/backoff if you plan to run this regularly or at larger scale.
-Reddit data shape: posts have a `title` field; comments generally don't. `normalize.py` uses that as a simple way to tell them apart in the combined file — it's a heuristic, not a guarantee, if the actor's schema changes.
-Dedup is exact-match, not fuzzy: `clean_pipeline.py` removes exact duplicate rows (same platform+author+text+date) and removes Reddit posts that resurface under more than one search query. It won't catch two genuinely different reviews that happen to say almost the same thing in slightly different words — that would need a fuzzy-matching library (e.g. `rapidfuzz`) on top, which isn't included here.
-dashboard.html has no backend: it's a single static file that reads whatever CSV/JSON you load into it, entirely in your browser. Nothing is uploaded anywhere, and nothing persists between page loads — reload the page and you'll need to load the file again.
+This cleaned file has these columns: `record_id, platform, author, rating, title, text, word_count, date, year_month, country, subreddit, app_version, thumbs_up, reply_text, url`.
+
+This is the file you should use for any analysis or for loading into the dashboard. You can re-run this step any time after a new scrape — it just processes files you already have, it doesn't go fetch anything new from the internet.
+
+## Step 4: Explore the data visually
+
+Open the file `dashboard.html` directly in your web browser — no setup, no installation, no server needed, it's just one file. Once it's open, click the "Load CSV" or "Load JSON" button and select your `cleaned_reviews` file. If you want to try it out first without your own data, click "Load sample data" to preview it with placeholder data.
+
+You can filter the data by: which platform it came from, which country's app store, app version, which subreddit, star rating, date range, or by searching for specific words in the title, author, or review text. There's also an "Export filtered (CSV)" button, so you can pull out just the slice you need — for example, "all 1-star Android reviews from Germany in March" — to drop into a slide or report.
+
+**What you won't find as filters:** gender and device type. None of the three sources (Google Play, Apple's App Store, or Reddit) actually provide that information about reviewers. Guessing someone's gender from their username, or their device from anything else in the data, would mean making up information rather than reporting it — so those filters simply don't exist here.
+
+## Step 5: Adjust the settings
+
+All the app-specific settings live in one file: `config.py`. (It currently pulls just 10 reviews per source, for testing purposes — increase this once you're ready for a full run.)
+
+- `PLAY_STORE_APP_ID` — which app to scrape (defaults to Spotify: `com.spotify.music`)
+- `PLAY_STORE_COUNTRIES` / `APP_STORE_COUNTRIES` — which countries' app stores to pull from (defaults to: US, UK, Germany, India, Brazil, Australia). This is what powers the "country" filter in the dashboard — add or remove country codes here to change it. Note: the language setting `PLAY_STORE_LANG` is fixed to English across all countries, so for non-English-speaking markets, you'll only get their English-language reviews, not reviews written in the local language.
+- `REDDIT_QUERIES` — the search terms used to find Reddit posts (defaults to a few Spotify-related phrases, to catch more than just posts containing the exact word "Spotify")
+- `REDDIT_COMMENTS_MODE` — controls how much Reddit data gets pulled: `"none"` (fastest and cheapest — just posts, no comments), `"all"` (every comment on every post — much slower and uses more of your Apify usage), or `"high_engagement"` (comments only on the most popular posts)
+
+## Things worth knowing before you rely on this data
+
+**Apple only gives you recent reviews.** Apple's public reviews feed only exposes a limited, recent window of reviews per country — capped at roughly the same few-hundred-per-country ceiling regardless of how high you set `APP_STORE_HOW_MANY` in `config.py`. This isn't a limitation of this tool — it's simply what Apple's feed makes available. Getting older, broader historical data would require Apple's official App Store Connect API (which is only available to a developer who owns the app — meaning it doesn't apply here, since this isn't Spotify's own team) or a paid third-party dataset.
+
+**More countries means more time.** Scraping 6 countries instead of 1 roughly multiplies how long the Play Store and App Store scraping takes by 6. If you want a faster run, reduce the list of countries in `config.py`.
+
+**Reddit scraping can use significant Apify usage.** The setting controlling how many Reddit posts get pulled per search term is currently set very high (essentially "no limit" — it just stops once a search term runs out of results). For a popular topic like "Spotify," this can mean a long run and noticeable usage on your Apify account, especially if you turn on full comment scraping. Keep an eye on your usage in the Apify console, and consider starting with a smaller limit (e.g., 200 per search term) to check everything looks right before doing a full run.
+
+**Google Play has a lot of reviews.** Spotify has an enormous number of Play Store reviews in every country, and the tool fetches them in batches of 200 with a short pause between each batch — that pause is intentional, to avoid overwhelming Google's servers, and is the main reason a full run takes a while.
+
+**Please use this responsibly.** These reviews and posts are publicly visible, but each platform (Reddit, Apple, Google) has its own terms of service around automated data collection. Don't overload their servers, and don't republish this data in ways that violate their terms. If you plan to run this regularly or at a larger scale, consider adding your own rate-limiting.
+
+**Telling Reddit posts and comments apart isn't perfect.** Reddit posts have a `title`, while comments generally don't — that difference is what the tool uses to tell them apart in the combined file. It's a reasonable shortcut, not a guarantee, and could break if Reddit's data format changes in the future.
+
+**Duplicate removal is exact-match, not "fuzzy."** The cleaning step removes rows that are exact duplicates (same platform, author, text, and date), and removes Reddit posts that show up under more than one search term. It will not catch two different reviews that just happen to say almost the same thing in slightly different words — catching that would require an additional fuzzy-matching tool (such as `rapidfuzz`), which isn't included here.
+
+**The dashboard works entirely offline, in your browser.** `dashboard.html` has no backend — it's a single file that simply reads whatever CSV or JSON file you load into it, directly in your browser. Nothing is uploaded anywhere, and nothing is saved between visits — if you reload the page, you'll need to load your file again.
