@@ -1,12 +1,13 @@
 # SpotifyPM
 Spotify Reviews Scraper
+
 Pulls Spotify reviews/mentions from three sources and saves them as both
 CSV and JSON, per-platform (raw) and combined (normalized into one schema).
 Source	Approach	API key needed?
 Google Play Store	`google-play-scraper` library	No
 Apple App Store	Direct request to Apple's public customer-reviews RSS/JSON feed (no third-party scraping package)	No
 Reddit	Apify actor `spry_wholemeal/reddit-scraper`, called via `apify-client`	Yes — `APIFY_TOKEN`
-1. Setup
+1. **Setup**
 ```bash
 cd spotify-reviews-scraper
 python3 -m venv .venv && source .venv/bin/activate   # optional but recommended
@@ -20,7 +21,7 @@ APIFY_TOKEN=your_apify_token_here
 > ⚠️ If you've ever pasted an Apify token into a chat, terminal recording,
 > or shared doc, treat it as compromised and rotate it at
 > https://console.apify.com/account/integrations before using it here.
-2. Run
+2.** Run**
 ```bash
 python main.py
 ```
@@ -38,7 +39,7 @@ Run just one source:
 ```bash
 python main.py --skip-apple --skip-reddit   # Play Store only
 ```
-3. Clean, dedupe, and normalize
+3. **Clean, dedupe, and normalize**
 ```bash
 python clean_pipeline.py
 ```
@@ -49,7 +50,8 @@ platform+author+text+date, plus Reddit posts deduped by permalink since the same
 under more than one search query). This is the file to feed into the dashboard.
 Cleaned schema: `record_id, platform, author, rating, title, text, word_count, date, year_month, country, subreddit, app_version, thumbs_up, reply_text, url`.
 Re-run this any time after a fresh scrape — it doesn't touch the network.
-4. Explore the data: dashboard.html
+
+4. **Explore the data: dashboard.html**
 Open `dashboard.html` directly in a browser (no server, no build step — it's one self-contained
 file). Load `output/cleaned_reviews.csv` or `.json` via the Load CSV / JSON button, or click
 Load sample data to preview it with synthetic data first.
@@ -61,8 +63,9 @@ Not included as filters: gender and device. Neither Google Play, Apple's App Sto
 Reddit's public data exposes reviewer demographics or device info. Guessing at gender from
 usernames, or device from anything in these feeds, would be fabricating data, not analyzing it —
 so those columns simply don't exist rather than being filled with unreliable guesses.
+
 5. Tuning
-Everything app-specific lives in `config.py`:
+Everything app-specific lives in `config.py`:(currently set for 10 review per source for testig purposes)
 `PLAY_STORE_APP_ID` — defaults to `com.spotify.music`
 `PLAY_STORE_COUNTRIES` / `APP_STORE_COUNTRIES` — lists of storefronts to scrape (default: `us, gb, de, in, br, au`). This is what gives the dashboard's "geography" filter real data — add or remove country codes here. Note `PLAY_STORE_LANG` stays `"en"` across all of them, so non-English-market countries only return their English-language reviews, not the dominant local-language ones.
 `REDDIT_QUERIES` — search terms sent to the Reddit actor (defaults to a few Spotify-related phrases so you catch more than just exact-match "Spotify")
