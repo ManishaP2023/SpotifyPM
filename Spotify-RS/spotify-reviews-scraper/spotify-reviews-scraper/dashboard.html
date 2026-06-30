@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Feedback Loop — Spotify Review Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #11140F;
+    --surface: #1A1F17;
+    --surface-2: #20271C;
+    --hairline: #313B2C;
+    --text: #ECEEE4;
+    --text-dim: #97A08C;
+    --accent: #E0954A;
+    --accent-soft: rgba(224, 149, 74, 0.16);
+    --accent-2: #4FB8C9;
+    --accent-2-soft: rgba(79, 184, 201, 0.16);
+    --good: #6FBF73;
+    --bad: #D9667A;
+    --accent-3: #A98FE0;
+    --accent-3-soft: rgba(169, 143, 224, 0.16);
+    --radius: 10px;
+    --display-font: 'Space Grotesk', 'Inter', sans-serif;
+    --body-font: 'Inter', system-ui, sans-serif;
+    --mono-font: 'IBM Plex Mono', 'SFMono-Regular', monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--body-font);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--accent-2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  button { font-family: var(--body-font); cursor: pointer; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- Layout shell ---------- */
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 20px 60px; }
+
+  /* ---------- Header ---------- */
+  header.top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+    flex-wrap: wrap;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--hairline);
+    margin-bottom: 20px;
+  }
+  .title-block { display: flex; align-items: center; gap: 14px; }
+  .eq { display: flex; align-items: flex-end; gap: 3px; height: 30px; opacity: .65; flex-shrink: 0; }
+  .eq span { width: 3px; background: var(--accent); border-radius: 2px; display: block; animation: eqbar 1.4s ease-in-out infinite; }
+  @keyframes eqbar { 0%, 100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
+  @media (prefers-reduced-motion: reduce) { .eq span { animation: none; transform: scaleY(.7); } }
+
+  h1 {
+    font-family: var(--display-font);
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .subtitle { color: var(--text-dim); font-size: 13px; margin-top: 3px; }
+
+  .load-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .load-row { display: flex; gap: 8px; }
+  .load-dropdown { position: relative; display: inline-block; }
+  .load-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+    min-width: 190px;
+    z-index: 30;
+    overflow: hidden;
+  }
+  .load-menu.open { display: block; }
+  .load-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 10px 14px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--hairline);
+    color: var(--text);
+    font-size: 13px;
+    font-family: var(--body-font);
+  }
+  .load-menu button:last-child { border-bottom: none; }
+  .load-menu button:hover { background: var(--surface-2); color: var(--accent); }
+  .btn {
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: var(--radius);
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: border-color .15s, background .15s;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .btn.ghost { background: transparent; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  #fileInput { display: none; }
+  .last-loaded { color: var(--text-dim); font-size: 11px; font-family: var(--mono-font); }
+
+  /* ---------- Empty state ---------- */
+  #emptyState {
+    border: 1px dashed var(--hairline);
+    border-radius: 14px;
+    padding: 60px 24px;
+    text-align: center;
+    color: var(--text-dim);
+  }
+  #emptyState h2 { font-family: var(--display-font); color: var(--text); font-size: 17px; margin: 0 0 8px; }
+  #emptyState p { max-width: 480px; margin: 0 auto 20px; font-size: 13px; }
+  #emptyState .load-row { justify-content: center; margin: 0 auto; }
+
+  /* ---------- Dashboard body ---------- */
+  #dashboardBody { display: none; }
+
+  /* ---------- Filter rail ---------- */
+  .filter-rail {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 14px;
+    padding: 16px 18px;
+    margin-bottom: 20px;
+  }
+  .filter-row { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; margin-bottom: 14px; }
+  .filter-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .filter-group.grow { flex: 1; min-width: 220px; }
+  .filter-label {
+    font-family: var(--mono-font);
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .pill-set { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--hairline);
+    background: var(--surface-2);
+    color: var(--text-dim);
+    border-radius: 999px;
+    padding: 5px 10px 5px 8px;
+    font-size: 12px;
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  .pill .led { width: 6px; height: 6px; border-radius: 50%; background: var(--hairline); transition: background .15s; flex-shrink: 0; }
+  .pill:hover { border-color: var(--accent-2); color: var(--text); }
+  .pill.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .pill.active .led { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .pill-empty { color: var(--text-dim); font-size: 12px; font-style: italic; }
+
+  .knob-row { display: flex; gap: 8px; }
+  .knob {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--hairline);
+    background: radial-gradient(circle at 35% 30%, var(--surface-2), var(--ink));
+    color: var(--text-dim);
+    font-family: var(--mono-font);
+    font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color .15s, color .15s, box-shadow .15s;
+  }
+  .knob:hover { border-color: var(--accent-2); color: var(--text); }
+  .knob.active { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  input[type="text"], input[type="date"] {
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 8px 10px;
+    font-size: 13px;
+    font-family: var(--body-font);
+  }
+  input[type="text"]::placeholder { color: var(--text-dim); }
+  .date-pair { display: flex; align-items: center; gap: 6px; }
+  .date-pair span { color: var(--text-dim); font-size: 12px; }
+
+  .filter-footer {
+    display: flex; justify-content: space-between; align-items: center;
+    border-top: 1px solid var(--hairline);
+    padding-top: 12px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .footnote { color: var(--text-dim); font-size: 11.5px; max-width: 640px; }
+  .footnote strong { color: var(--text); }
+
+  /* ---------- KPI strip ---------- */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .kpi-card {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .kpi-label { font-family: var(--mono-font); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 6px; }
+  .kpi-value { font-family: var(--mono-font); font-size: 24px; font-weight: 500; color: var(--accent); }
+
+  /* ---------- Charts ---------- */
+  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    padding: 14px 16px 8px;
+    height: 270px;
+    position: relative;
+  }
+  .chart-card canvas { width: 100% !important; height: 100% !important; }
+
+  /* ---------- Table ---------- */
+  .table-section { background: var(--surface); border: 1px solid var(--hairline); border-radius: 12px; padding: 14px 16px; }
+  .table-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
+  #resultsCount { color: var(--text-dim); font-size: 12.5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead th {
+    text-align: left;
+    font-family: var(--mono-font);
+    font-size: 10.5px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--hairline);
+    padding: 8px 8px;
+  }
+  tbody td { padding: 9px 8px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  tbody tr:hover { background: var(--surface-2); }
+  .dim { color: var(--text-dim); }
+  .review-cell { max-width: 420px; }
+  .review-cell strong { color: var(--text); }
+  mark { background: var(--accent-soft); color: var(--accent); border-radius: 3px; padding: 0 2px; }
+  .empty-row { text-align: center; color: var(--text-dim); padding: 24px !important; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-family: var(--mono-font); }
+  .tag-google_play { background: var(--accent-2-soft); color: var(--accent-2); }
+  .tag-app_store { background: var(--accent-soft); color: var(--accent); }
+  .tag-reddit { background: rgba(217, 102, 122, 0.16); color: var(--bad); }
+  .tag-youtube { background: var(--accent-3-soft); color: var(--accent-3); }
+
+  .pagination { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+  #pageLabel { color: var(--text-dim); font-size: 12px; font-family: var(--mono-font); }
+
+  @media (max-width: 860px) {
+    .chart-grid { grid-template-columns: 1fr; }
+    header.top { flex-direction: column; }
+    .load-controls { align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="title-block">
+      <div class="eq" aria-hidden="true">
+        <span style="height:40%;animation-delay:0s"></span>
+        <span style="height:70%;animation-delay:.12s"></span>
+        <span style="height:50%;animation-delay:.24s"></span>
+        <span style="height:90%;animation-delay:.06s"></span>
+        <span style="height:35%;animation-delay:.3s"></span>
+        <span style="height:65%;animation-delay:.18s"></span>
+      </div>
+      <div>
+        <h1>Feedback Loop</h1>
+        <div class="subtitle">Spotify reviews &amp; mentions — Google Play, App Store, Reddit, normalized into one view</div>
+      </div>
+    </div>
+    <div class="load-controls">
+      <div class="load-row">
+        <div class="load-dropdown">
+          <button class="btn primary" type="button" id="loadDataBtn">Load Data ▾</button>
+          <div class="load-menu" id="loadMenu">
+            <button type="button" id="chooseFile">Upload CSV / JSON</button>
+            <button type="button" id="loadSample">Use sample data</button>
+          </div>
+        </div>
+        <input type="file" id="fileInput" accept=".csv,.json,application/json,text/csv">
+      </div>
+      <div class="last-loaded" id="lastLoaded">nothing loaded yet</div>
+    </div>
+  </header>
+
+  <div id="emptyState">
+    <h2>No data loaded</h2>
+    <p>Drop in the <code>cleaned_reviews.csv</code> or <code>cleaned_reviews.json</code> file produced by
+       <code>clean_pipeline.py</code>, or load synthetic sample data to preview the dashboard first.</p>
+    <div class="load-row">
+      <div class="load-dropdown">
+        <button class="btn primary" type="button" id="loadDataBtn2">Load Data ▾</button>
+        <div class="load-menu" id="loadMenu2">
+          <button type="button" id="chooseFile2">Upload CSV / JSON</button>
+          <button type="button" id="loadSample2">Use sample data</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="dashboardBody">
+
+    <div class="filter-rail">
+      <div class="filter-row">
+        <div class="filter-group">
+          <div class="filter-label">Source</div>
+          <div class="pill-set" id="platformFilters"></div>
+        </div>
+        <div class="filter-group">
+          <div class="filter-label">Rating</div>
+          <div class="knob-row" id="ratingFilters">
+            <button class="knob" type="button" data-rating="1">1★</button>
+            <button class="knob" type="button" data-rating="2">2★</button>
+            <button class="knob" type="button" data-rating="3">3★</button>
+            <button class="knob" type="button" data-rating="4">4★</button>
+            <button class="knob" type="button" data-rating="5">5★</button>
+          </div>
+        </div>
+        <div class="filter-group">
+          <div class="filter-label">Date range</div>
+          <div class="date-pair">
+            <input type="date" id="dateStart">
+            <span>→</span>
+            <input type="date" id="dateEnd">
+          </div>
+        </div>
+        <div class="filter-group grow">
+          <div class="filter-label">Search review text / title / author</div>
+          <input type="text" id="searchInput" placeholder="e.g. crash, premium price, offline downloads…">
+        </div>
+      </div>
+      <div class="filter-row">
+        <div class="filter-group">
+          <div class="filter-label">Geography (store country)</div>
+          <div class="pill-set" id="countryFilters"></div>
+        </div>
+      </div>
+      <div class="filter-footer">
+        <div class="footnote">
+          <strong>Not included:</strong> gender and device. None of these sources expose reviewer demographics
+          or device info — guessing them from usernames/text would be unreliable profiling, not data, so they're
+          left out rather than faked.
+        </div>
+        <button class="btn ghost" type="button" id="resetFilters">Reset filters</button>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-label">Reviews (filtered)</div><div class="kpi-value" id="kpiTotal">0</div></div>
+      <div class="kpi-card"><div class="kpi-label">Avg rating</div><div class="kpi-value" id="kpiAvgRating">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Sources</div><div class="kpi-value" id="kpiPlatforms">0</div></div>
+      <div class="kpi-card"><div class="kpi-label">Countries</div><div class="kpi-value" id="kpiCountries">0</div></div>
+      <div class="kpi-card"><div class="kpi-label">Date span</div><div class="kpi-value" id="kpiDateSpan" style="font-size:15px;">—</div></div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="chart-card"><canvas id="chartPlatform"></canvas></div>
+      <div class="chart-card"><canvas id="chartRating"></canvas></div>
+    </div>
+    <div class="chart-grid">
+      <div class="chart-card"><canvas id="chartVolume"></canvas></div>
+      <div class="chart-card"><canvas id="chartCountry"></canvas></div>
+    </div>
+
+    <div class="table-section">
+      <div class="table-toolbar">
+        <div id="resultsCount">0 reviews match current filters</div>
+        <button class="btn ghost" type="button" id="exportBtn">Export filtered (CSV)</button>
+      </div>
+      <table id="reviewTable">
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Geo / community</th>
+            <th>Rating</th>
+            <th>Date</th>
+            <th>Version</th>
+            <th>Review</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="pagination">
+        <button class="btn ghost" type="button" id="prevPage">← Prev</button>
+        <span id="pageLabel">Page 1 of 1</span>
+        <button class="btn ghost" type="button" id="nextPage">Next →</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // ---------------------------------------------------------------------
+  // Library load check -- fail loudly here instead of a confusing
+  // "could not read file" error later if a CDN script didn't load.
+  // ---------------------------------------------------------------------
+  if (!window.Papa || !window.Chart) {
+    const missing = [];
+    if (!window.Papa) missing.push("PapaParse (CSV parsing)");
+    if (!window.Chart) missing.push("Chart.js (charts)");
+    document.getElementById("emptyState").innerHTML =
+      "<h2>Could not load required libraries</h2>" +
+      "<p>This dashboard loads two small libraries from a CDN (cdnjs.cloudflare.com): " +
+      "<strong>" + missing.join(" and ") + "</strong> failed to load. " +
+      "Check your internet connection, or that a firewall/proxy isn't blocking cdnjs.cloudflare.com, " +
+      "then reload this page.</p>";
+    return; // nothing else will work without these, so stop here
+  }
+
+  // ---------------------------------------------------------------------
+  // State
+  // ---------------------------------------------------------------------
+  const state = {
+    data: [],
+    filters: {
+      platforms: new Set(),
+      countries: new Set(),
+      ratings: new Set(),
+      dateStart: null,
+      dateEnd: null,
+      search: "",
+    },
+    page: 1,
+    pageSize: 25,
+  };
+  const charts = {};
+
+  // ---------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------
+  function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+  function toNumOrNull(v) {
+    if (v === null || v === undefined || v === "") return null;
+    const n = Number(v);
+    return Number.isNaN(n) ? null : n;
+  }
+  function uniqueSorted(arr) {
+    return [...new Set(arr.filter((v) => v !== "" && v !== null && v !== undefined))].sort();
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+  function escapeRegex(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  function truncate(s, n) {
+    return s && s.length > n ? s.slice(0, n) + "…" : s || "";
+  }
+  function platformLabel(p) {
+    return { google_play: "Google Play", app_store: "App Store", reddit: "Reddit", youtube: "YouTube" }[p] || p;
+  }
+  function colorForPlatform(p) {
+    if (p === "google_play") return cssVar("--accent-2");
+    if (p === "app_store") return cssVar("--accent");
+    if (p === "reddit") return cssVar("--bad");
+    if (p === "youtube") return cssVar("--accent-3");
+    return cssVar("--text-dim");
+  }
+
+  // ---------------------------------------------------------------------
+  // Loading data
+  // ---------------------------------------------------------------------
+  function normalizeRecord(r) {
+    const dateStr = r.date || "";
+    return {
+      record_id: r.record_id || "",
+      platform: r.platform || "",
+      author: r.author || "",
+      rating: toNumOrNull(r.rating),
+      title: r.title || "",
+      text: r.text || "",
+      word_count: r.word_count !== undefined && r.word_count !== null && r.word_count !== ""
+        ? Number(r.word_count)
+        : (r.text ? r.text.trim().split(/\s+/).filter(Boolean).length : 0),
+      date: dateStr,
+      dateObj: dateStr ? new Date(dateStr) : null,
+      year_month: r.year_month || (dateStr ? String(dateStr).slice(0, 7) : ""),
+      country: r.country || "",
+      app_version: r.app_version || "",
+      subreddit: r.subreddit || "",
+      thumbs_up: toNumOrNull(r.thumbs_up),
+      url: r.url || "",
+    };
+  }
+
+  function loadRecords(records) {
+    state.data = records.map(normalizeRecord).filter((r) => r.platform);
+    resetFiltersToData();
+    document.getElementById("emptyState").style.display = "none";
+    document.getElementById("dashboardBody").style.display = "block";
+    render();
+  }
+
+  function handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        let records;
+        if (file.name.toLowerCase().endsWith(".json")) {
+          records = JSON.parse(evt.target.result);
+        } else {
+          const parsed = Papa.parse(evt.target.result, { header: true, skipEmptyLines: true });
+          records = parsed.data;
+        }
+        loadRecords(records);
+        document.getElementById("lastLoaded").textContent = file.name + " • " + new Date().toLocaleTimeString();
+      } catch (err) {
+        alert("Could not read that file: " + err.message + "\nMake sure it's cleaned_reviews.csv or .json from clean_pipeline.py.");
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function generateSampleData() {
+    const platforms = ["google_play", "app_store", "reddit", "youtube"];
+    const countries = ["us", "gb", "de", "in", "br", "au"];
+    const versions = ["8.9.1", "8.9.0", "8.8.4", "8.8.0"];
+    const subreddits = ["spotify", "music", "podcasts"];
+    const snippets = [
+      "Playback keeps stuttering on my commute, started after the last update.",
+      "Love the new DJ feature, feels like a real radio host picking tracks for me.",
+      "Premium price increase is hard to justify with the same feature set.",
+      "Offline downloads keep disappearing when I switch wifi networks.",
+      "The redesigned home screen buries my playlists, takes too many taps now.",
+      "Audio quality on the car app is noticeably better since the update.",
+      "Crashes every time I try to add a song to an existing playlist.",
+      "Family plan billing charged me twice this month, support was slow to respond.",
+      "Discover Weekly is still the best recommendation engine out there.",
+      "Lyrics sync is off by a few seconds on most tracks I have tried.",
+    ];
+    const rows = [];
+    const now = Date.now();
+    for (let i = 0; i < 320; i++) {
+      const platform = platforms[Math.floor(Math.random() * platforms.length)];
+      const daysAgo = Math.floor(Math.random() * 365);
+      const date = new Date(now - daysAgo * 86400000);
+      const hasRating = platform === "google_play" || platform === "app_store";
+      const rating = hasRating ? 1 + Math.floor(Math.random() * 5) : null;
+      rows.push({
+        record_id: "sample_" + i,
+        platform,
+        author: "user_" + Math.floor(Math.random() * 9000),
+        rating,
+        title: platform === "reddit" && Math.random() > 0.4 ? snippets[Math.floor(Math.random() * snippets.length)].slice(0, 40) : "",
+        text: snippets[Math.floor(Math.random() * snippets.length)],
+        date: date.toISOString(),
+        year_month: date.toISOString().slice(0, 7),
+        country: hasRating ? countries[Math.floor(Math.random() * countries.length)] : "",
+        app_version: hasRating ? versions[Math.floor(Math.random() * versions.length)] : "",
+        subreddit: platform === "reddit" ? subreddits[Math.floor(Math.random() * subreddits.length)] : "",
+        thumbs_up: Math.floor(Math.random() * 200),
+        url: platform === "reddit" ? "https://reddit.com/r/spotify/comments/sample" + i
+           : platform === "youtube" ? "https://www.youtube.com/watch?v=sample" + i
+           : "",
+      });
+    }
+    return rows;
+  }
+
+  // ---------------------------------------------------------------------
+  // Filters
+  // ---------------------------------------------------------------------
+  function buildPillGroup(containerId, values, filterKey) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = "";
+    if (values.length === 0) {
+      container.innerHTML = '<span class="pill-empty">none in data</span>';
+      return;
+    }
+    values.forEach((v) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "pill";
+      btn.innerHTML = `<span class="led"></span>${escapeHtml(String(v))}`;
+      btn.addEventListener("click", () => toggleFilter(filterKey, v, btn));
+      container.appendChild(btn);
+    });
+  }
+
+  function toggleFilter(filterKey, value, btn) {
+    const set = state.filters[filterKey];
+    if (set.has(value)) {
+      set.delete(value);
+      btn.classList.remove("active");
+    } else {
+      set.add(value);
+      btn.classList.add("active");
+    }
+    state.page = 1;
+    render();
+  }
+
+  function resetFiltersToData() {
+    state.filters.platforms.clear();
+    state.filters.countries.clear();
+    state.filters.ratings.clear();
+    state.filters.search = "";
+    state.filters.dateStart = null;
+    state.filters.dateEnd = null;
+    document.getElementById("searchInput").value = "";
+    document.getElementById("dateStart").value = "";
+    document.getElementById("dateEnd").value = "";
+    document.querySelectorAll(".knob").forEach((el) => el.classList.remove("active"));
+    state.page = 1;
+
+    buildPillGroup("platformFilters", uniqueSorted(state.data.map((r) => r.platform)), "platforms");
+    buildPillGroup("countryFilters", uniqueSorted(state.data.map((r) => r.country)), "countries");
+  }
+
+  function filterData() {
+    const f = state.filters;
+    return state.data.filter((r) => {
+      if (f.platforms.size && !f.platforms.has(r.platform)) return false;
+      if (f.countries.size && !f.countries.has(r.country)) return false;
+      if (f.ratings.size) {
+        if (r.rating === null || !f.ratings.has(r.rating)) return false;
+      }
+      if (f.dateStart && (!r.dateObj || r.dateObj < f.dateStart)) return false;
+      if (f.dateEnd && (!r.dateObj || r.dateObj > f.dateEnd)) return false;
+      if (f.search) {
+        const hay = (r.title + " " + r.text + " " + r.author).toLowerCase();
+        if (!hay.includes(f.search)) return false;
+      }
+      return true;
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // KPIs
+  // ---------------------------------------------------------------------
+  function updateKPIs(filtered) {
+    document.getElementById("kpiTotal").textContent = filtered.length.toLocaleString();
+    const rated = filtered.filter((r) => r.rating !== null);
+    const avg = rated.length ? rated.reduce((s, r) => s + r.rating, 0) / rated.length : null;
+    document.getElementById("kpiAvgRating").textContent = avg ? avg.toFixed(2) : "—";
+    document.getElementById("kpiPlatforms").textContent = uniqueSorted(filtered.map((r) => r.platform)).length;
+    document.getElementById("kpiCountries").textContent = uniqueSorted(filtered.map((r) => r.country)).length;
+    const dates = filtered.map((r) => r.dateObj).filter(Boolean).sort((a, b) => a - b);
+    document.getElementById("kpiDateSpan").textContent = dates.length
+      ? `${dates[0].toISOString().slice(0, 10)} → ${dates[dates.length - 1].toISOString().slice(0, 10)}`
+      : "—";
+  }
+
+  // ---------------------------------------------------------------------
+  // Charts
+  // ---------------------------------------------------------------------
+  function baseChartOptions({ title, stacked = false, horizontal = false } = {}) {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: horizontal ? "y" : "x",
+      plugins: {
+        legend: { display: stacked, position: "bottom", labels: { boxWidth: 10, font: { size: 10 }, color: cssVar("--text-dim") } },
+        title: { display: !!title, text: title, color: cssVar("--text"), font: { size: 12, family: "Space Grotesk" }, padding: { bottom: 10 } },
+        tooltip: { backgroundColor: cssVar("--surface-2"), titleColor: cssVar("--text"), bodyColor: cssVar("--text-dim"), borderColor: cssVar("--hairline"), borderWidth: 1 },
+      },
+      scales: {
+        x: { stacked, grid: { color: cssVar("--hairline") }, ticks: { color: cssVar("--text-dim"), font: { size: 10 } } },
+        y: { stacked, grid: { color: cssVar("--hairline") }, ticks: { color: cssVar("--text-dim"), font: { size: 10 } }, beginAtZero: true },
+      },
+    };
+  }
+
+  function basePieChartOptions({ title } = {}) {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: "bottom", labels: { boxWidth: 10, font: { size: 10 }, color: cssVar("--text-dim") } },
+        title: { display: !!title, text: title, color: cssVar("--text"), font: { size: 12, family: "Space Grotesk" }, padding: { bottom: 10 } },
+        tooltip: { backgroundColor: cssVar("--surface-2"), titleColor: cssVar("--text"), bodyColor: cssVar("--text-dim"), borderColor: cssVar("--hairline"), borderWidth: 1 },
+      },
+    };
+  }
+
+  function renderChart(id, config) {
+    const ctx = document.getElementById(id).getContext("2d");
+    if (charts[id]) charts[id].destroy();
+    charts[id] = new Chart(ctx, config);
+  }
+
+  function aggregateVolumeByMonth(filtered) {
+    const counts = {};
+    filtered.forEach((r) => {
+      const m = r.year_month || "unknown";
+      counts[m] = counts[m] || {};
+      counts[m][r.platform] = (counts[m][r.platform] || 0) + 1;
+    });
+    const months = Object.keys(counts).sort();
+    const platforms = uniqueSorted(filtered.map((r) => r.platform));
+    const datasets = platforms.map((p) => {
+      const color = colorForPlatform(p);
+      return {
+        label: platformLabel(p),
+        data: months.map((m) => counts[m][p] || 0),
+        borderColor: color,
+        backgroundColor: color,
+        fill: false,
+        tension: 0.35,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        borderWidth: 2,
+      };
+    });
+    return { months, datasets };
+  }
+
+  function aggregateRatings(filtered) {
+    const counts = [0, 0, 0, 0, 0];
+    filtered.forEach((r) => {
+      if (r.rating >= 1 && r.rating <= 5) counts[r.rating - 1]++;
+    });
+    return counts;
+  }
+
+  function aggregatePlatform(filtered) {
+    const counts = {};
+    filtered.forEach((r) => (counts[r.platform] = (counts[r.platform] || 0) + 1));
+    return counts;
+  }
+
+  function aggregateCountries(filtered) {
+    const counts = {};
+    filtered.forEach((r) => {
+      const c = r.country || (r.platform === "reddit" ? (r.subreddit ? "r/" + r.subreddit : "reddit (n/a)") : "unknown");
+      counts[c] = (counts[c] || 0) + 1;
+    });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  }
+
+  function updateCharts(filtered) {
+    const { months, datasets } = aggregateVolumeByMonth(filtered);
+    renderChart("chartVolume", {
+      type: "line",
+      data: { labels: months, datasets },
+      options: baseChartOptions({ title: "Volume by month", stacked: false }),
+    });
+
+    const ratingCounts = aggregateRatings(filtered);
+    renderChart("chartRating", {
+      type: "bar",
+      data: {
+        labels: ["1★", "2★", "3★", "4★", "5★"],
+        datasets: [{ label: "Reviews", data: ratingCounts, backgroundColor: ratingCounts.map((_, i) => (i < 2 ? cssVar("--bad") : i === 2 ? cssVar("--accent") : cssVar("--good"))) }],
+      },
+      options: baseChartOptions({ title: "Rating distribution (Play + App Store)" }),
+    });
+
+    const platformCounts = aggregatePlatform(filtered);
+    renderChart("chartPlatform", {
+      type: "pie",
+      data: {
+        labels: Object.keys(platformCounts).map(platformLabel),
+        datasets: [{ data: Object.values(platformCounts), backgroundColor: Object.keys(platformCounts).map(colorForPlatform), borderColor: cssVar("--surface"), borderWidth: 2 }],
+      },
+      options: basePieChartOptions({ title: "Share of volume by source" }),
+    });
+
+    const countryCounts = aggregateCountries(filtered);
+    renderChart("chartCountry", {
+      type: "bar",
+      data: {
+        labels: countryCounts.map((c) => c[0]),
+        datasets: [{ data: countryCounts.map((c) => c[1]), backgroundColor: cssVar("--accent-2") }],
+      },
+      options: baseChartOptions({ title: "Top geographies / communities", horizontal: true }),
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Table
+  // ---------------------------------------------------------------------
+  function highlightedText(title, text) {
+    const full = (title ? `<strong>${escapeHtml(title)}</strong><br>` : "") + escapeHtml(truncate(text, 220));
+    if (!state.filters.search) return full;
+    const re = new RegExp(escapeRegex(state.filters.search), "ig");
+    return full.replace(re, (m) => `<mark>${m}</mark>`);
+  }
+
+  function updateTable(filtered) {
+    document.getElementById("resultsCount").textContent = `${filtered.length.toLocaleString()} reviews match current filters`;
+    const totalPages = Math.max(1, Math.ceil(filtered.length / state.pageSize));
+    if (state.page > totalPages) state.page = totalPages;
+    const startIdx = (state.page - 1) * state.pageSize;
+    const pageItems = filtered.slice(startIdx, startIdx + state.pageSize);
+
+    const tbody = document.querySelector("#reviewTable tbody");
+    tbody.innerHTML = "";
+    if (pageItems.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No reviews match these filters. Try widening the date range or clearing a filter.</td></tr>`;
+    } else {
+      pageItems.forEach((r) => {
+        const tr = document.createElement("tr");
+        const geo = r.country || (r.subreddit ? "r/" + r.subreddit : "—");
+        tr.innerHTML = `
+          <td><span class="tag tag-${r.platform}">${escapeHtml(platformLabel(r.platform))}</span></td>
+          <td>${escapeHtml(geo)}</td>
+          <td>${r.rating !== null ? "★".repeat(r.rating) + '<span class="dim">' + "☆".repeat(5 - r.rating) + "</span>" : '<span class="dim">—</span>'}</td>
+          <td>${escapeHtml(r.date ? r.date.slice(0, 10) : "—")}</td>
+          <td>${escapeHtml(r.app_version || "—")}</td>
+          <td class="review-cell">${highlightedText(r.title, r.text)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+    document.getElementById("pageLabel").textContent = `Page ${state.page} of ${totalPages}`;
+    document.getElementById("prevPage").disabled = state.page <= 1;
+    document.getElementById("nextPage").disabled = state.page >= totalPages;
+  }
+
+  // ---------------------------------------------------------------------
+  // Export
+  // ---------------------------------------------------------------------
+  function csvEscape(v) {
+    if (v === null || v === undefined) return "";
+    const s = String(v).replace(/"/g, '""');
+    return /[",\n]/.test(s) ? `"${s}"` : s;
+  }
+
+  function exportFilteredCSV() {
+    const filtered = filterData();
+    if (!filtered.length) {
+      alert("No rows to export with the current filters.");
+      return;
+    }
+    const cols = ["platform", "country", "subreddit", "rating", "date", "app_version", "author", "title", "text", "thumbs_up", "url"];
+    const lines = [cols.join(",")];
+    filtered.forEach((r) => lines.push(cols.map((c) => csvEscape(r[c])).join(",")));
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "filtered_reviews.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // ---------------------------------------------------------------------
+  // Render + wiring
+  // ---------------------------------------------------------------------
+  function render() {
+    const filtered = filterData();
+    updateKPIs(filtered);
+    updateCharts(filtered);
+    updateTable(filtered);
+  }
+
+  document.getElementById("chooseFile").addEventListener("click", () => document.getElementById("fileInput").click());
+  document.getElementById("chooseFile2").addEventListener("click", () => document.getElementById("fileInput").click());
+  document.getElementById("fileInput").addEventListener("change", handleFile);
+
+  function loadSample() {
+    loadRecords(generateSampleData());
+    document.getElementById("lastLoaded").textContent = "synthetic demo data • " + new Date().toLocaleTimeString();
+  }
+  document.getElementById("loadSample").addEventListener("click", loadSample);
+  document.getElementById("loadSample2").addEventListener("click", loadSample);
+
+  // Combined "Load Data" dropdown -- one button opens a small menu with
+  // both the file-upload and sample-data options, in both the header and
+  // the empty state.
+  function wireLoadDropdown(buttonId, menuId) {
+    const button = document.getElementById(buttonId);
+    const menu = document.getElementById(menuId);
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      document.querySelectorAll(".load-menu").forEach((m) => {
+        if (m !== menu) m.classList.remove("open");
+      });
+      menu.classList.toggle("open");
+    });
+  }
+  wireLoadDropdown("loadDataBtn", "loadMenu");
+  wireLoadDropdown("loadDataBtn2", "loadMenu2");
+
+  document.querySelectorAll(".load-menu button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      btn.closest(".load-menu").classList.remove("open");
+    });
+  });
+
+  document.addEventListener("click", () => {
+    document.querySelectorAll(".load-menu").forEach((m) => m.classList.remove("open"));
+  });
+
+  document.querySelectorAll(".knob[data-rating]").forEach((btn) => {
+    btn.addEventListener("click", () => toggleFilter("ratings", Number(btn.dataset.rating), btn));
+  });
+
+  document.getElementById("dateStart").addEventListener("change", (e) => {
+    state.filters.dateStart = e.target.value ? new Date(e.target.value) : null;
+    state.page = 1;
+    render();
+  });
+  document.getElementById("dateEnd").addEventListener("change", (e) => {
+    state.filters.dateEnd = e.target.value ? new Date(e.target.value + "T23:59:59") : null;
+    state.page = 1;
+    render();
+  });
+
+  let searchTimer;
+  document.getElementById("searchInput").addEventListener("input", (e) => {
+    clearTimeout(searchTimer);
+    const val = e.target.value;
+    searchTimer = setTimeout(() => {
+      state.filters.search = val.trim().toLowerCase();
+      state.page = 1;
+      render();
+    }, 200);
+  });
+
+  document.getElementById("resetFilters").addEventListener("click", () => {
+    resetFiltersToData();
+    render();
+  });
+
+  document.getElementById("prevPage").addEventListener("click", () => {
+    if (state.page > 1) {
+      state.page--;
+      updateTable(filterData());
+    }
+  });
+  document.getElementById("nextPage").addEventListener("click", () => {
+    state.page++;
+    updateTable(filterData());
+  });
+
+  document.getElementById("exportBtn").addEventListener("click", exportFilteredCSV);
+
+  if (window.Chart) {
+    Chart.defaults.color = cssVar("--text-dim");
+    Chart.defaults.borderColor = cssVar("--hairline");
+    Chart.defaults.font.family = "IBM Plex Mono, monospace";
+  }
+})();
+</script>
+</body>
+</html>
